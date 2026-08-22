@@ -104,7 +104,7 @@ pub type Components = IndexMap<String, Schema>;
 /// Types that can produce an OpenAPI schema.
 ///
 /// * Primitives and containers return inline schemas.
-/// * Named types (usually via `#[derive(Schema)]`) return a `$ref` from
+/// * Named types (usually via `#[derive(ToSchema)]`) return a `$ref` from
 ///   [`ToSchema::schema`] and register themselves (and any nested types) via
 ///   [`ToSchema::schemas`].
 pub trait ToSchema {

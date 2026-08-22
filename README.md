@@ -8,33 +8,34 @@ the OpenAPI document are all derived from your types and controllers.
 
 ```rust
 use std::sync::Arc;
-use velton::{controller, Cors, OpenApi, Response, Router, Schema, Server};
+use velton::{controller, Cors, OpenApi, Router, Server, ToSchema};
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 pub struct ListUsersRequest {
     // Sources: body (default), query, path, header.
     #[schema(source = Source::Query, example = "John Doe")]
     pub name: String,
 }
 
-#[derive(Response, Schema)]
-#[response(code = 201, description = "Created")]
+#[derive(ToSchema)]
+#[schema(status_code = 201, description = "Created")]
 pub struct CreateUserResponse {
     pub id: u64,
 }
 
 pub struct UserController { my_service: Arc<MyService> }
 
-#[controller("/users")]
+#[controller]
 impl UserController {
     pub fn new(my_service: Arc<MyService>) -> Self {
         Self { my_service }
     }
 
-    #[get("/")]
-    #[openapi(
+    #[endpoint(
+        method = get,
+        path = "/users",
         description = "This is an example.",
-        responses = (
+        error_responses = (
             BadRequestErrorResponse,
             UnauthorizedErrorResponse,
             InternalServerErrorResponse,
@@ -65,14 +66,14 @@ See `crates/velton/examples/basic.rs` for a fully runnable version.
 
 ## Features
 
-- **Declarative controllers** — `#[controller("/users")]` + `#[get]`, `#[post]`,
-  `#[put]`, `#[delete]`, `#[patch]`, `#[options]`, `#[head]` turn an `impl`
-  block into a router.
-- **One derive for requests** — `#[derive(Schema)]` on a request struct
+- **Declarative controllers** — `#[controller]` + `#[endpoint(method = ...,
+path = ...)]` turn an `impl` block into a router. Each endpoint declares its
+  full HTTP method and path.
+- **One derive for requests** — `#[derive(ToSchema)]` on a request struct
   generates request extraction (query/path/header/body), OpenAPI parameters and
   request body, and `serde` `Serialize`/`Deserialize` impls.
-- **One derive for responses** — `#[derive(Response, Schema)]` +
-  `#[response(code = 201, description = "...")]` generates an axum
+- **One derive for responses** — `#[derive(ToSchema)]` +
+  `#[schema(status_code = 201, description = "...")]` generates an axum
   `IntoResponse` and OpenAPI response metadata.
 - **OpenAPI 3.0 document** — assembled automatically from your controllers,
   served at `/openapi.json`, with an interactive **Scalar** UI at `/docs`.
@@ -99,53 +100,55 @@ Path parameters in routes use `:name` (or `{name}`) and are matched to `Source::
 fields by name:
 
 ```rust
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct GetUserRequest {
     #[schema(source = Source::Path)]
     id: u64,
 }
 
-#[controller("/users")]
+#[controller]
 impl Users {
-    #[get("/:id")]
+    #[endpoint(method = get, path = "/users/:id")]
     async fn get(self, req: GetUserRequest) -> Result<UserResponse, Error> { /* ... */ }
 }
 ```
 
 ## `#[schema]` attributes
 
-| Attribute                  | Meaning                          |
-| -------------------------- | -------------------------------- |
-| `source = Source::Query`   | Request source (default body)    |
-| `example = "..."`          | Example value                    |
-| `description = "..."`      | Field description                |
-| `rename = "..."`           | Serialized / header name         |
-| `required = true/false`    | Override required (default: non-`Option` fields are required) |
-| `default = <lit>`          | Default value                    |
-| `format = "..."`           | Schema format (e.g. `"date-time"`) |
-| `title = "..."`            | Schema title                     |
-| `minimum` / `maximum`      | Numeric bounds                   |
-| `min_length` / `max_length`| String length bounds             |
-| `pattern = "..."`          | Regex pattern                    |
-| `deprecated`               | Mark deprecated                  |
+| Attribute                   | Meaning                                                       |
+| --------------------------- | ------------------------------------------------------------- |
+| `source = Source::Query`    | Request source (default body)                                 |
+| `example = "..."`           | Example value                                                 |
+| `description = "..."`       | Field / response description                                  |
+| `status_code = 201`         | Response status code (container)                              |
+| `rename = "..."`            | Serialized / header name                                      |
+| `required = true/false`     | Override required (default: non-`Option` fields are required) |
+| `default = <lit>`           | Default value                                                 |
+| `format = "..."`            | Schema format (e.g. `"date-time"`)                            |
+| `title = "..."`             | Schema title                                                  |
+| `minimum` / `maximum`       | Numeric bounds                                                |
+| `min_length` / `max_length` | String length bounds                                          |
+| `pattern = "..."`           | Regex pattern                                                 |
+| `deprecated`                | Mark deprecated                                               |
 
-## `#[openapi]` attributes
+## `#[endpoint]` attributes
+
+Each handler method is annotated with a single `#[endpoint(...)]`:
 
 ```rust
-#[openapi(
-    summary = "List users",
+#[endpoint(
+    method = get,                                    // required: get/post/put/delete/patch/options/head/any
+    path = "/users",                                // required: the full path
     description = "A longer description.",
-    tags = ("users", "admin"),
-    operation_id = "listUsers",
-    deprecated,
-    responses = (BadRequestErrorResponse, InternalServerErrorResponse),
-    // request = SomeOtherRequest,   // override the auto-discovered request type
+    error_responses = (BadRequestErrorResponse, InternalServerErrorResponse),
 )]
+async fn list(self, req: ListUsersRequest) -> Result<ListUsersResponse, Error> { ... }
 ```
 
-The success response is auto-discovered from the handler's return type; additional
-responses are listed with `responses = (...)` (each type must derive
-`Response, Schema`).
+The OpenAPI `operationId` is derived automatically from the handler function
+name. The success response is auto-discovered from the handler's return type;
+additional responses are listed with `error_responses = (...)` (each type
+must derive `ToSchema` with a `#[schema(status_code = ...)]`).
 
 ## Error handling
 
@@ -210,19 +213,19 @@ impl ToSchema for uuid::Uuid {
 ## Workspace layout
 
 - `crates/velton` — the framework runtime.
-- `crates/velton-macros` — the procedural macros (`derive(Schema)`,
-  `derive(Response)`, `#[controller]`, route and `#[openapi]` attributes).
+- `crates/velton-macros` — the procedural macros (`derive(ToSchema)`,
+  `#[controller]` and `#[endpoint]` attributes).
 - `crates/velton/examples/basic.rs` — runnable getting-started example.
 - `crates/velton/tests/` — HTTP and OpenAPI integration tests.
 
 ## Notes / limitations (v1)
 
-- `#[derive(Schema)]` also implements `serde::Serialize`/`Deserialize` for the
+- `#[derive(ToSchema)]` also implements `serde::Serialize`/`Deserialize` for the
   type; don't derive serde yourself.
-- Only unit-variant enums are supported by `#[derive(Schema)]`; data-carrying
+- Only unit-variant enums are supported by `#[derive(ToSchema)]`; data-carrying
   enums (`oneOf`) are not yet implemented.
 - The error handler and body limit are process-global settings configured at
   `build()` time.
-- Route attribute macros (`#[get]`, `#[openapi]`, …) and `Source` are consumed
-  by the derive/attribute macros and do not need to be imported.
+- `#[endpoint]` and `Source` are consumed by the attribute macros and do not
+  need to be imported.
 - The crate must be named `velton` (generated code refers to `::velton::...`).

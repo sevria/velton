@@ -1,4 +1,4 @@
-//! Parsing helpers for `#[schema]`, `#[response]` and `#[openapi]` attributes.
+//! Parsing helpers for `#[schema]` and `#[endpoint]` attributes.
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -13,12 +13,13 @@ pub enum Source {
     Header,
 }
 
-/// Parsed `#[schema(...)]` field attribute.
+/// Parsed `#[schema(...)]` attribute (on a field or on the container).
 #[derive(Debug, Clone, Default)]
 pub struct SchemaAttr {
     pub source: Option<Source>,
     pub example: Option<syn::Lit>,
     pub description: Option<String>,
+    pub status_code: Option<u16>,
     pub rename: Option<String>,
     pub required: Option<bool>,
     pub default: Option<syn::Expr>,
@@ -83,6 +84,9 @@ impl SchemaAttr {
                     out.example = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("description") {
                     out.description = Some(meta.value()?.parse::<syn::LitStr>()?.value());
+                } else if meta.path.is_ident("status_code") {
+                    let lit: syn::LitInt = meta.value()?.parse()?;
+                    out.status_code = Some(lit.base10_parse()?);
                 } else if meta.path.is_ident("rename") {
                     out.rename = Some(meta.value()?.parse::<syn::LitStr>()?.value());
                 } else if meta.path.is_ident("required") {
@@ -161,82 +165,36 @@ pub fn option_inner(ty: &syn::Type) -> Option<&syn::Type> {
     }
 }
 
-/// Parsed `#[response(...)]` attribute (on a `#[derive(Response)]` type).
+/// Parsed `#[endpoint(...)]` attribute on a controller handler method.
 #[derive(Debug, Clone, Default)]
-pub struct ResponseAttr {
-    pub code: Option<u16>,
+pub struct EndpointAttr {
+    pub method: Option<String>,
+    pub path: Option<String>,
     pub description: Option<String>,
+    pub error_responses: Vec<syn::Type>,
 }
 
-impl ResponseAttr {
+impl EndpointAttr {
     pub fn from_attrs(attrs: &[syn::Attribute]) -> syn::Result<Self> {
-        let mut out = ResponseAttr::default();
+        let mut out = EndpointAttr::default();
         for attr in attrs {
-            if !attr.path().is_ident("response") {
+            if !attr.path().is_ident("endpoint") {
                 continue;
             }
             attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("code") {
-                    let lit: syn::LitInt = meta.value()?.parse()?;
-                    out.code = Some(lit.base10_parse()?);
+                if meta.path.is_ident("method") {
+                    let p: Path = meta.value()?.parse()?;
+                    let ident = p
+                        .segments
+                        .last()
+                        .map(|s| s.ident.to_string())
+                        .unwrap_or_default();
+                    out.method = Some(ident);
+                } else if meta.path.is_ident("path") {
+                    out.path = Some(meta.value()?.parse::<syn::LitStr>()?.value());
                 } else if meta.path.is_ident("description") {
                     out.description = Some(meta.value()?.parse::<syn::LitStr>()?.value());
-                } else {
-                    return Err(meta.error(format!(
-                        "velton: unknown `#[response]` attribute `{}`",
-                        meta.path
-                            .get_ident()
-                            .map(|i| i.to_string())
-                            .unwrap_or_default()
-                    )));
-                }
-                Ok(())
-            })?;
-        }
-        Ok(out)
-    }
-}
-
-/// Parsed `#[openapi(...)]` attribute on a controller handler method.
-#[derive(Debug, Clone, Default)]
-pub struct OpenApiAttr {
-    pub summary: Option<String>,
-    pub description: Option<String>,
-    pub operation_id: Option<String>,
-    pub tags: Vec<String>,
-    pub deprecated: bool,
-    pub responses: Vec<syn::Type>,
-    pub request: Option<syn::Type>,
-}
-
-impl OpenApiAttr {
-    pub fn from_attrs(attrs: &[syn::Attribute]) -> syn::Result<Self> {
-        let mut out = OpenApiAttr::default();
-        for attr in attrs {
-            if !attr.path().is_ident("openapi") {
-                continue;
-            }
-            attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("summary") {
-                    out.summary = Some(meta.value()?.parse::<syn::LitStr>()?.value());
-                } else if meta.path.is_ident("description") {
-                    out.description = Some(meta.value()?.parse::<syn::LitStr>()?.value());
-                } else if meta.path.is_ident("operation_id") {
-                    out.operation_id = Some(meta.value()?.parse::<syn::LitStr>()?.value());
-                } else if meta.path.is_ident("deprecated") {
-                    out.deprecated = true;
-                } else if meta.path.is_ident("request") {
-                    out.request = Some(meta.value()?.parse()?);
-                } else if meta.path.is_ident("tags") {
-                    let stream = meta.value()?;
-                    let content;
-                    syn::parenthesized!(content in stream);
-                    let list = content.parse_terminated(
-                        <syn::LitStr as syn::parse::Parse>::parse,
-                        syn::Token![,],
-                    )?;
-                    out.tags = list.into_iter().map(|l| l.value()).collect();
-                } else if meta.path.is_ident("responses") {
+                } else if meta.path.is_ident("error_responses") {
                     let stream = meta.value()?;
                     let content;
                     syn::parenthesized!(content in stream);
@@ -244,10 +202,10 @@ impl OpenApiAttr {
                         <syn::Type as syn::parse::Parse>::parse,
                         syn::Token![,],
                     )?;
-                    out.responses = list.into_iter().collect();
+                    out.error_responses = list.into_iter().collect();
                 } else {
                     return Err(meta.error(format!(
-                        "velton: unknown `#[openapi]` attribute `{}`",
+                        "velton: unknown `#[endpoint]` attribute `{}`",
                         meta.path
                             .get_ident()
                             .map(|i| i.to_string())

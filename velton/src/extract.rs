@@ -25,7 +25,7 @@ impl Source {
     }
 }
 
-/// Implemented by request structs (via `#[derive(Schema)]`).
+/// Implemented by request structs (via `#[derive(ToSchema)]`).
 ///
 /// Produces the OpenAPI parameters and request body for an operation.
 pub trait RequestSchema {

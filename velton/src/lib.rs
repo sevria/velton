@@ -24,11 +24,7 @@ pub use response::ResponseSchema;
 pub use router::{Router, RouterBuilder};
 pub use schema::{Schema, SchemaType, ToSchema};
 
-pub use velton_macros::{
-    Schema, controller, delete, get, head, openapi, options, patch, post, put,
-};
-
-// Derive macro and trait share the `Response` name via different namespaces.
-pub use velton_macros::Response;
+// Derive macro and trait share the `ToSchema` name via different namespaces.
+pub use velton_macros::{ToSchema, controller, endpoint};
 
 pub use tower_http::cors::CorsLayer as Cors;

@@ -1,9 +1,9 @@
 //! OpenAPI document structure tests.
 
 use serde_json::Value;
-use velton::{OpenApi, Response, Router, Schema, Server, controller};
+use velton::{OpenApi, Router, Server, ToSchema, controller};
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct ListRequest {
     #[schema(source = Source::Query, example = "John Doe", description = "filter by name")]
     name: String,
@@ -11,32 +11,32 @@ struct ListRequest {
     page: Option<u32>,
 }
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct GetRequest {
     #[schema(source = Source::Path)]
     id: u64,
 }
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct CreateRequest {
     name: String,
     email: String,
 }
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct Nested {
     count: u32,
 }
 
-#[derive(Response, Schema)]
-#[response(code = 201, description = "User created")]
+#[derive(ToSchema)]
+#[schema(status_code = 201, description = "User created")]
 struct UserResponse {
     id: u64,
     nested: Nested,
 }
 
-#[derive(Response, Schema)]
-#[response(code = 400)]
+#[derive(ToSchema)]
+#[schema(status_code = 400)]
 struct BadRequest {
     message: String,
 }
@@ -52,15 +52,13 @@ impl std::error::Error for AppError {}
 
 struct UsersController;
 
-#[controller("/users")]
+#[controller]
 impl UsersController {
-    #[get("/")]
-    #[openapi(
+    #[endpoint(
+        method = get,
+        path = "/users",
         description = "list users",
-        summary = "List users",
-        tags = ("users", "admin"),
-        operation_id = "listUsers",
-        responses = (BadRequest,),
+        error_responses = (BadRequest,),
     )]
     async fn list(self, req: ListRequest) -> Result<UserResponse, AppError> {
         let _ = &req;
@@ -70,7 +68,7 @@ impl UsersController {
         })
     }
 
-    #[get("/:id")]
+    #[endpoint(method = get, path = "/users/:id")]
     async fn get(self, req: GetRequest) -> Result<UserResponse, AppError> {
         Ok(UserResponse {
             id: req.id,
@@ -78,7 +76,7 @@ impl UsersController {
         })
     }
 
-    #[post("/")]
+    #[endpoint(method = post, path = "/users")]
     async fn create(self, req: CreateRequest) -> Result<UserResponse, AppError> {
         let _ = &req;
         Ok(UserResponse {
@@ -199,9 +197,7 @@ fn components_are_collected_recursively() {
 fn operation_metadata_is_documented() {
     let doc = doc();
     let get = &doc["paths"]["/users"]["get"];
-    assert_eq!(get["summary"], "List users");
     assert_eq!(get["description"], "list users");
-    assert_eq!(get["operationId"], "listUsers");
-    assert_eq!(get["tags"][0], "users");
-    assert_eq!(get["tags"][1], "admin");
+    // Operation id is derived from the handler function name.
+    assert_eq!(get["operationId"], "list");
 }

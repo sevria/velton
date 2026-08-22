@@ -79,7 +79,7 @@ impl RouterBuilder {
         self
     }
 
-    /// Adds a controller (via `#[controller(...)]`).
+    /// Adds a controller (via `#[controller]` + `#[endpoint(...)]`).
     pub fn controller<C: crate::controller::__Router>(mut self, controller: C) -> Self {
         self.controllers.push(ControllerBox::new(controller));
         self

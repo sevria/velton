@@ -7,11 +7,11 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 use velton::axum::body::Body;
 use velton::axum::http::{Request, StatusCode};
-use velton::{Cors, OpenApi, Response, Router, Schema, Server, controller};
+use velton::{Cors, OpenApi, Router, Server, ToSchema, controller};
 
 // --- Request types -------------------------------------------------------------
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct QueryReq {
     #[schema(source = Source::Query)]
     name: String,
@@ -19,19 +19,19 @@ struct QueryReq {
     page: Option<u32>,
 }
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct PathReq {
     #[schema(source = Source::Path)]
     id: u64,
 }
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct HeaderReq {
     #[schema(source = Source::Header)]
     api_key: String,
 }
 
-#[derive(Schema)]
+#[derive(ToSchema)]
 struct BodyReq {
     name: String,
     email: String,
@@ -39,13 +39,14 @@ struct BodyReq {
 
 // --- Response types -------------------------------------------------------------
 
-#[derive(Response, Schema)]
+#[derive(ToSchema)]
+#[schema(status_code = 200)]
 struct OkResponse {
     message: String,
 }
 
-#[derive(Response, Schema)]
-#[response(code = 201)]
+#[derive(ToSchema)]
+#[schema(status_code = 201)]
 struct CreatedResponse {
     id: u64,
 }
@@ -71,13 +72,13 @@ struct TestController {
 
 struct TestService;
 
-#[controller("/test")]
+#[controller]
 impl TestController {
     fn new(service: Arc<TestService>) -> Self {
         Self { service }
     }
 
-    #[get("/")]
+    #[endpoint(method = get, path = "/test")]
     async fn query(self, req: QueryReq) -> Result<OkResponse, AppError> {
         let _ = &self.service;
         Ok(OkResponse {
@@ -85,29 +86,28 @@ impl TestController {
         })
     }
 
-    #[get("/:id")]
+    #[endpoint(method = get, path = "/test/:id")]
     async fn path(self, req: PathReq) -> Result<OkResponse, AppError> {
         Ok(OkResponse {
             message: format!("path {}", req.id),
         })
     }
 
-    #[get("/h")]
+    #[endpoint(method = get, path = "/test/h")]
     async fn header(self, req: HeaderReq) -> Result<OkResponse, AppError> {
         Ok(OkResponse {
             message: format!("header {}", req.api_key),
         })
     }
 
-    #[post("/")]
-    #[openapi(description = "create something")]
+    #[endpoint(method = post, path = "/test", description = "create something")]
     async fn body(self, req: BodyReq) -> Result<CreatedResponse, AppError> {
         Ok(CreatedResponse {
             id: req.email.len() as u64,
         })
     }
 
-    #[get("/err")]
+    #[endpoint(method = get, path = "/test/err")]
     async fn err(self) -> Result<OkResponse, AppError> {
         Err(AppError)
     }

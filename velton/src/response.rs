@@ -4,7 +4,8 @@ use crate::openapi::{Content, Response};
 use crate::schema::{Components, ToSchema};
 use axum::http::StatusCode;
 
-/// Implemented by response types (via `#[derive(Response)]`).
+/// Implemented by response types (via `#[derive(ToSchema)]` with
+/// `#[schema(status_code = ...)]`).
 pub trait ResponseSchema: ToSchema {
     /// The HTTP status code returned by this response.
     fn status() -> StatusCode;

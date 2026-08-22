@@ -1,11 +1,13 @@
-//! `#[derive(Schema)]` codegen.
+//! `#[derive(ToSchema)]` codegen.
 //!
 //! For structs this generates:
 //! * `impl ToSchema` (a `$ref` plus recursive component registration),
 //! * `impl RequestSchema` (OpenAPI parameters + request body),
-//! * `impl FromRequest` (extraction from body/query/path/header), and
+//! * `impl FromRequest` (extraction from body/query/path/header),
 //! * serde `Serialize`/`Deserialize` impls (via hidden delegation structs),
-//!   unless the user already derives them.
+//!   unless the user already derives them, and
+//! * when `#[schema(status_code = ...)]` is present, `impl IntoResponse` and
+//!   `impl ResponseSchema` (response support).
 
 use crate::attr::{SchemaAttr, Source, expr_value_expr, is_option, lit_value_expr, option_inner};
 use proc_macro2::TokenStream;
@@ -20,7 +22,7 @@ pub fn derive_schema(input: DeriveInput) -> syn::Result<TokenStream> {
         Data::Enum(data) => derive_enum(&input, name, data),
         Data::Union(_) => Err(syn::Error::new_spanned(
             name,
-            "velton: `Schema` cannot be derived for unions",
+            "velton: `ToSchema` cannot be derived for unions",
         )),
     }
 }
@@ -59,7 +61,7 @@ fn struct_fields(data: &syn::DataStruct) -> syn::Result<Vec<FieldSpec<'_>>> {
         let ident = field.ident.as_ref().ok_or_else(|| {
             syn::Error::new_spanned(
                 field,
-                "velton: tuple structs are not supported by `#[derive(Schema)]`",
+                "velton: tuple structs are not supported by `#[derive(ToSchema)]`",
             )
         })?;
         fields.push(FieldSpec {
@@ -80,7 +82,7 @@ fn check_no_generics(input: &DeriveInput) -> syn::Result<()> {
     if !input.generics.params.is_empty() {
         return Err(syn::Error::new_spanned(
             &input.ident,
-            "velton: generic types are not yet supported by `#[derive(Schema)]`",
+            "velton: generic types are not yet supported by `#[derive(ToSchema)]`",
         ));
     }
     Ok(())
@@ -190,17 +192,20 @@ fn derive_struct(
 ) -> syn::Result<TokenStream> {
     check_no_generics(input)?;
     let fields = struct_fields(data)?;
+    let container = SchemaAttr::from_attrs(&input.attrs)?;
 
     let serde_impls = serde_struct_impls(input, name, &fields)?;
     let schema_impl = struct_to_schema_impl(name, &fields)?;
     let request_impl = struct_request_schema_impl(name, &fields)?;
     let from_request_impl = struct_from_request_impl(name, &fields)?;
+    let response_impl = struct_response_impl(name, &container)?;
 
     Ok(quote! {
         #serde_impls
         #schema_impl
         #request_impl
         #from_request_impl
+        #response_impl
     })
 }
 
@@ -346,6 +351,41 @@ fn struct_to_schema_impl(name: &syn::Ident, fields: &[FieldSpec<'_>]) -> syn::Re
                         ::std::vec![#(#required_names),*],
                     )
                 });
+            }
+        }
+    })
+}
+
+/// Generates axum `IntoResponse` and `ResponseSchema` impls when the container
+/// has `#[schema(status_code = ...)]`; otherwise it is a no-op.
+fn struct_response_impl(name: &syn::Ident, attrs: &SchemaAttr) -> syn::Result<TokenStream> {
+    let Some(code) = attrs.status_code else {
+        return Ok(TokenStream::new());
+    };
+    let description = attrs
+        .description
+        .clone()
+        .unwrap_or_else(|| "OK".to_string());
+    let status = quote! {
+        ::velton::axum::http::StatusCode::from_u16(#code)
+            .expect("velton: invalid status code in `#[schema(status_code = ...)]`")
+    };
+    Ok(quote! {
+        impl ::velton::axum::response::IntoResponse for #name {
+            fn into_response(self) -> ::velton::axum::response::Response {
+                ::velton::axum::response::IntoResponse::into_response((
+                    #status,
+                    ::velton::axum::Json(self),
+                ))
+            }
+        }
+
+        impl ::velton::response::ResponseSchema for #name {
+            fn status() -> ::velton::axum::http::StatusCode {
+                #status
+            }
+            fn description() -> &'static str {
+                #description
             }
         }
     })
@@ -647,7 +687,7 @@ fn derive_enum(
         if !matches!(v.fields, Fields::Unit) {
             return Err(syn::Error::new_spanned(
                 v,
-                "velton: only unit-variant enums are supported by `#[derive(Schema)]`",
+                "velton: only unit-variant enums are supported by `#[derive(ToSchema)]`",
             ));
         }
     }
