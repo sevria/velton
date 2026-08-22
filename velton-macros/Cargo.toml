@@ -1,0 +1,17 @@
+[package]
+name = "velton-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Procedural macros for velton."
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true

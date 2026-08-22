@@ -1,0 +1,28 @@
+[package]
+name = "velton"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ergonomic REST API framework with first-class OpenAPI support, built on axum."
+
+[lints]
+workspace = true
+
+[dependencies]
+axum.workspace = true
+http.workspace = true
+indexmap.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+velton-macros = { path = "../velton-macros", version = "0.1.0" }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { workspace = true, features = ["full"] }
+tower = { workspace = true, features = ["util"] }
