@@ -1,27 +1,28 @@
 //! A runnable version of the velton getting-started example.
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use velton::{Cors, OpenApi, Router, Server, ToSchema, controller};
+use velton::{OpenApi, Router, Server, ToSchema, controller, middleware::Cors};
 
 // `#[endpoint]` and `Source` are only referenced inside attributes consumed by
 // `#[controller]`/`#[derive(ToSchema)]`, so they do not need to be imported.
 
 // --- Requests -----------------------------------------------------------------
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct ListUsersRequest {
     #[schema(source = Source::Query, example = "John Doe")]
     pub name: String,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct GetUserRequest {
     #[schema(source = Source::Path, example = 42)]
     pub id: u64,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct CreateUserRequest {
     pub name: String,
     pub email: String,
@@ -29,32 +30,32 @@ pub struct CreateUserRequest {
 
 // --- Responses ----------------------------------------------------------------
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 200)]
 pub struct ListUsersResponse {
     #[schema(example = "User fetched successfully")]
     pub message: String,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 201, description = "User created")]
 pub struct CreateUserResponse {
     pub id: u64,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 400)]
 pub struct BadRequestErrorResponse {
     pub message: String,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 401)]
 pub struct UnauthorizedErrorResponse {
     pub message: String,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 500)]
 pub struct InternalServerErrorResponse {
     pub message: String,

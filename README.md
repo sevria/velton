@@ -7,17 +7,18 @@ Declare your API once — request extraction, response serialization, routing an
 the OpenAPI document are all derived from your types and controllers.
 
 ```rust
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use velton::{controller, Cors, OpenApi, Router, Server, ToSchema};
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct ListUsersRequest {
     // Sources: body (default), query, path, header.
     #[schema(source = Source::Query, example = "John Doe")]
     pub name: String,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 201, description = "Created")]
 pub struct CreateUserResponse {
     pub id: u64,
@@ -64,17 +65,45 @@ router.run().await?;
 
 See `crates/velton/examples/basic.rs` for a fully runnable version.
 
+## Serde is up to you
+
+`#[derive(ToSchema)]` does **not** implement `serde::Serialize`/`Deserialize`
+for you. Add `serde` (with the `derive` feature) to your own dependencies and
+derive both traits alongside `ToSchema` on every type used as a request or
+response:
+
+```toml
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+```
+
+```rust
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct CreateUserRequest {
+    pub name: String,
+}
+```
+
+Response bodies are serialized through your `Serialize` impl; request
+bodies/query/path parameters are deserialized through your `Deserialize` impl
+(via `serde_json` and `serde_urlencoded`). velton still uses serde internally,
+but it is no longer bundled as part of your public types.
+
 ## Features
 
 - **Declarative controllers** — `#[controller]` + `#[endpoint(method = ...,
 path = ...)]` turn an `impl` block into a router. Each endpoint declares its
   full HTTP method and path.
 - **One derive for requests** — `#[derive(ToSchema)]` on a request struct
-  generates request extraction (query/path/header/body), OpenAPI parameters and
-  request body, and `serde` `Serialize`/`Deserialize` impls.
+  generates request extraction (query/path/header/body) plus the OpenAPI
+  parameters and request body. (You derive `serde::Serialize`/`Deserialize`
+  yourself; see [Serde is up to you](#serde-is-up-to-you).)
 - **One derive for responses** — `#[derive(ToSchema)]` +
   `#[schema(status_code = 201, description = "...")]` generates an axum
-  `IntoResponse` and OpenAPI response metadata.
+  `IntoResponse` and OpenAPI response metadata, serialized via your `Serialize`
+  impl.
 - **OpenAPI 3.0 document** — assembled automatically from your controllers,
   served at `/openapi.json`, with an interactive **Scalar** UI at `/docs`.
 - **Error-agnostic handlers** — return `Result<T, YourError>`; a default error
@@ -100,7 +129,7 @@ Path parameters in routes use `:name` (or `{name}`) and are matched to `Source::
 fields by name:
 
 ```rust
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct GetUserRequest {
     #[schema(source = Source::Path)]
     id: u64,
@@ -121,7 +150,7 @@ impl Users {
 | `example = "..."`           | Example value                                                 |
 | `description = "..."`       | Field / response description                                  |
 | `status_code = 201`         | Response status code (container)                              |
-| `rename = "..."`            | Serialized / header name                                      |
+| `rename = "..."`            | OpenAPI name / header name (also the request wire name)       |
 | `required = true/false`     | Override required (default: non-`Option` fields are required) |
 | `default = <lit>`           | Default value                                                 |
 | `format = "..."`            | Schema format (e.g. `"date-time"`)                            |
@@ -220,8 +249,9 @@ impl ToSchema for uuid::Uuid {
 
 ## Notes / limitations (v1)
 
-- `#[derive(ToSchema)]` also implements `serde::Serialize`/`Deserialize` for the
-  type; don't derive serde yourself.
+- `#[derive(ToSchema)]` does not implement `serde::Serialize`/`Deserialize`;
+  install `serde` yourself and derive both traits on every request/response
+  type (see [Serde is up to you](#serde-is-up-to-you)).
 - Only unit-variant enums are supported by `#[derive(ToSchema)]`; data-carrying
   enums (`oneOf`) are not yet implemented.
 - The error handler and body limit are process-global settings configured at

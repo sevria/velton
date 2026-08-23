@@ -9,8 +9,11 @@ mod attr;
 mod controller;
 mod schema;
 
-/// Derives OpenAPI schema, request extraction, (de)serialization support and,
-/// when `#[schema(status_code = ...)]` is present, response support.
+/// Derives OpenAPI schema, request extraction and, when
+/// `#[schema(status_code = ...)]` is present, response support.
+///
+/// `Serialize`/`Deserialize` are not generated; derive them from the `serde`
+/// crate yourself.
 #[proc_macro_derive(ToSchema, attributes(schema))]
 pub fn derive_to_schema(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);

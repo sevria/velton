@@ -1,17 +1,17 @@
 //! End-to-end HTTP tests exercising routing, extraction (query/path/header/
 //! body), responses, error handling and the docs routes.
 
-use std::sync::Arc;
-
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tower::ServiceExt;
 use velton::axum::body::Body;
 use velton::axum::http::{Request, StatusCode};
-use velton::{Cors, OpenApi, Router, Server, ToSchema, controller};
+use velton::{OpenApi, Router, Server, ToSchema, controller, middleware::Cors};
 
 // --- Request types -------------------------------------------------------------
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct QueryReq {
     #[schema(source = Source::Query)]
     name: String,
@@ -19,19 +19,19 @@ struct QueryReq {
     page: Option<u32>,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct PathReq {
     #[schema(source = Source::Path)]
     id: u64,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct HeaderReq {
     #[schema(source = Source::Header)]
     api_key: String,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct BodyReq {
     name: String,
     email: String,
@@ -39,13 +39,13 @@ struct BodyReq {
 
 // --- Response types -------------------------------------------------------------
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 200)]
 struct OkResponse {
     message: String,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 201)]
 struct CreatedResponse {
     id: u64,

@@ -8,6 +8,7 @@ use crate::openapi::OpenApi;
 use axum::Json;
 use axum::response::Html;
 use axum::routing::get;
+use serde_json::json;
 use std::net::SocketAddr;
 
 const DEFAULT_BIND: &str = "127.0.0.1:3000";
@@ -45,9 +46,11 @@ impl Router {
                 addr: self.bind,
                 source,
             })?;
-        log::info!("velton: listening on http://{}", self.bind);
-        log::info!("velton: openapi at http://{}{}", self.bind, OPENAPI_PATH);
-        log::info!("velton: docs at http://{}{}", self.bind, DOCS_PATH);
+
+        log::info!("listening on http://{}", self.bind);
+        log::info!("openapi at http://{}{}", self.bind, OPENAPI_PATH);
+        log::info!("docs at http://{}{}", self.bind, DOCS_PATH);
+
         axum::serve(listener, self.app)
             .await
             .map_err(|e| Error::Serve(Box::new(e)))?;
@@ -136,7 +139,7 @@ impl RouterBuilder {
             set_body_limit(limit);
         }
 
-        let mut app = axum::Router::new();
+        let mut app = axum::Router::new().route("/", get(async || Json(json!({ "status": "ok" }))));
         for controller in &self.controllers {
             app = app.merge(controller.build_router());
         }

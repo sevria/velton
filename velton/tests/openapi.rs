@@ -1,9 +1,10 @@
 //! OpenAPI document structure tests.
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use velton::{OpenApi, Router, Server, ToSchema, controller};
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct ListRequest {
     #[schema(source = Source::Query, example = "John Doe", description = "filter by name")]
     name: String,
@@ -11,31 +12,31 @@ struct ListRequest {
     page: Option<u32>,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct GetRequest {
     #[schema(source = Source::Path)]
     id: u64,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct CreateRequest {
     name: String,
     email: String,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct Nested {
     count: u32,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 201, description = "User created")]
 struct UserResponse {
     id: u64,
     nested: Nested,
 }
 
-#[derive(ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[schema(status_code = 400)]
 struct BadRequest {
     message: String,

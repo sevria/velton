@@ -3,16 +3,16 @@
 //! For structs this generates:
 //! * `impl ToSchema` (a `$ref` plus recursive component registration),
 //! * `impl RequestSchema` (OpenAPI parameters + request body),
-//! * `impl FromRequest` (extraction from body/query/path/header),
-//! * serde `Serialize`/`Deserialize` impls (via hidden delegation structs),
-//!   unless the user already derives them, and
+//! * `impl FromRequest` (extraction from body/query/path/header), and
 //! * when `#[schema(status_code = ...)]` is present, `impl IntoResponse` and
 //!   `impl ResponseSchema` (response support).
+//!
+//! Serde `Serialize`/`Deserialize` are **not** generated here — derive them
+//! from the `serde` crate on your types (velton no longer bundles serde).
 
 use crate::attr::{SchemaAttr, Source, expr_value_expr, is_option, lit_value_expr, option_inner};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::collections::HashSet;
 use syn::{Data, DeriveInput, Fields};
 
 pub fn derive_schema(input: DeriveInput) -> syn::Result<TokenStream> {
@@ -27,32 +27,11 @@ pub fn derive_schema(input: DeriveInput) -> syn::Result<TokenStream> {
     }
 }
 
-/// The names of all derive attributes on the item, if visible.
-fn derive_names(input: &DeriveInput) -> HashSet<String> {
-    let mut names = HashSet::new();
-    for attr in &input.attrs {
-        if !attr.path().is_ident("derive") {
-            continue;
-        }
-        if let Ok(list) = attr.parse_args_with(
-            syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
-        ) {
-            for path in list {
-                if let Some(seg) = path.segments.last() {
-                    names.insert(seg.ident.to_string());
-                }
-            }
-        }
-    }
-    names
-}
-
 /// Fields of a struct with their parsed `#[schema]` attrs.
 struct FieldSpec<'a> {
     ident: &'a syn::Ident,
     ty: &'a syn::Type,
     attrs: SchemaAttr,
-    serde: Vec<&'a syn::Attribute>,
 }
 
 fn struct_fields(data: &syn::DataStruct) -> syn::Result<Vec<FieldSpec<'_>>> {
@@ -68,11 +47,6 @@ fn struct_fields(data: &syn::DataStruct) -> syn::Result<Vec<FieldSpec<'_>>> {
             ident,
             ty: &field.ty,
             attrs: SchemaAttr::from_attrs(&field.attrs)?,
-            serde: field
-                .attrs
-                .iter()
-                .filter(|a| a.path().is_ident("serde"))
-                .collect(),
         });
     }
     Ok(fields)
@@ -158,25 +132,8 @@ fn decorated_schema(field_ty: &syn::Type, attrs: &SchemaAttr) -> TokenStream {
     })
 }
 
-fn container_serde_attrs(input: &DeriveInput) -> Vec<&syn::Attribute> {
-    input
-        .attrs
-        .iter()
-        .filter(|a| a.path().is_ident("serde"))
-        .collect()
-}
-
-/// Serde tokens for a field: `#[schema(rename)]` wins, else the user's serde attrs.
-fn field_serde_tokens(field: &FieldSpec<'_>) -> TokenStream {
-    if let Some(r) = &field.attrs.rename {
-        quote!(#[serde(rename = #r)])
-    } else {
-        let serde = &field.serde;
-        quote!(#(#serde)*)
-    }
-}
-
-/// `#[serde(rename = "...")]` tokens for extraction hidden structs (schema rename only).
+/// `#[serde(rename = "...")]` tokens for extraction hidden structs, so requests
+/// deserialize using the wire names declared by `#[schema(rename = ...)]`.
 fn extraction_rename_tokens(field: &FieldSpec<'_>) -> TokenStream {
     if let Some(r) = &field.attrs.rename {
         quote!(#[serde(rename = #r)])
@@ -194,124 +151,16 @@ fn derive_struct(
     let fields = struct_fields(data)?;
     let container = SchemaAttr::from_attrs(&input.attrs)?;
 
-    let serde_impls = serde_struct_impls(input, name, &fields)?;
     let schema_impl = struct_to_schema_impl(name, &fields)?;
     let request_impl = struct_request_schema_impl(name, &fields)?;
     let from_request_impl = struct_from_request_impl(name, &fields)?;
     let response_impl = struct_response_impl(name, &container)?;
 
     Ok(quote! {
-        #serde_impls
         #schema_impl
         #request_impl
         #from_request_impl
         #response_impl
-    })
-}
-
-fn serde_struct_impls(
-    input: &DeriveInput,
-    name: &syn::Ident,
-    fields: &[FieldSpec<'_>],
-) -> syn::Result<TokenStream> {
-    let derived = derive_names(input);
-    let has_ser = derived.contains("Serialize");
-    let has_de = derived.contains("Deserialize");
-
-    if has_ser && has_de {
-        return Ok(TokenStream::new());
-    }
-
-    let container = container_serde_attrs(input);
-    let serde_hidden = format_ident!("__velton_serde_{}", name);
-    let de_hidden = format_ident!("__velton_de_{}", name);
-
-    let ser = if has_ser {
-        TokenStream::new()
-    } else {
-        let field_defs: Vec<TokenStream> = fields
-            .iter()
-            .map(|f| {
-                let serde = field_serde_tokens(f);
-                let ident = f.ident;
-                let ty = f.ty;
-                quote!(#serde #ident: &'a #ty,)
-            })
-            .collect();
-        let field_inits: Vec<TokenStream> = fields
-            .iter()
-            .map(|f| {
-                let ident = f.ident;
-                quote!(#ident: &self.#ident,)
-            })
-            .collect();
-        quote! {
-            #[doc(hidden)]
-            #[allow(non_camel_case_types, dead_code)]
-            #[derive(::velton::serde::Serialize)]
-            #[serde(#(#container),*)]
-            struct #serde_hidden<'a> {
-                #(#field_defs)*
-            }
-            impl ::velton::serde::Serialize for #name {
-                fn serialize<S: ::velton::serde::Serializer>(
-                    &self,
-                    serializer: S,
-                ) -> ::std::result::Result<S::Ok, S::Error> {
-                    ::velton::serde::Serialize::serialize(
-                        &#serde_hidden {
-                            #(#field_inits)*
-                        },
-                        serializer,
-                    )
-                }
-            }
-        }
-    };
-
-    let de = if has_de {
-        TokenStream::new()
-    } else {
-        let field_defs: Vec<TokenStream> = fields
-            .iter()
-            .map(|f| {
-                let serde = field_serde_tokens(f);
-                let ident = f.ident;
-                let ty = f.ty;
-                quote!(#serde #ident: #ty,)
-            })
-            .collect();
-        let field_inits: Vec<TokenStream> = fields
-            .iter()
-            .map(|f| {
-                let ident = f.ident;
-                quote!(#ident: __v.#ident,)
-            })
-            .collect();
-        quote! {
-            #[doc(hidden)]
-            #[allow(non_camel_case_types, dead_code)]
-            #[derive(::velton::serde::Deserialize)]
-            #[serde(#(#container),*)]
-            struct #de_hidden {
-                #(#field_defs)*
-            }
-            impl<'de> ::velton::serde::Deserialize<'de> for #name {
-                fn deserialize<D: ::velton::serde::Deserializer<'de>>(
-                    deserializer: D,
-                ) -> ::std::result::Result<Self, D::Error> {
-                    ::velton::serde::Deserialize::deserialize(deserializer)
-                        .map(|__v: #de_hidden| #name {
-                            #(#field_inits)*
-                        })
-                }
-            }
-        }
-    };
-
-    Ok(quote! {
-        #ser
-        #de
     })
 }
 
@@ -541,7 +390,7 @@ fn struct_from_request_impl(
         stmts.push(quote! {
             #[doc(hidden)]
             #[allow(non_camel_case_types, dead_code)]
-            #[derive(::velton::serde::Deserialize)]
+            #[derive(::serde::Deserialize)]
             struct #query_hidden {
                 #(#field_defs)*
             }
@@ -568,7 +417,7 @@ fn struct_from_request_impl(
         stmts.push(quote! {
             #[doc(hidden)]
             #[allow(non_camel_case_types, dead_code)]
-            #[derive(::velton::serde::Deserialize)]
+            #[derive(::serde::Deserialize)]
             struct #path_hidden {
                 #(#field_defs)*
             }
@@ -633,7 +482,7 @@ fn struct_from_request_impl(
         stmts.push(quote! {
             #[doc(hidden)]
             #[allow(non_camel_case_types, dead_code)]
-            #[derive(::velton::serde::Deserialize)]
+            #[derive(::serde::Deserialize)]
             struct #body_hidden {
                 #(#field_defs)*
             }
@@ -692,89 +541,6 @@ fn derive_enum(
         }
     }
 
-    let serde_hidden = format_ident!("__velton_serde_{}", name);
-
-    // serde delegation for unit enums (unless already derived).
-    let derived = derive_names(input);
-    let has_ser = derived.contains("Serialize");
-    let has_de = derived.contains("Deserialize");
-    let serde_impls = if has_ser && has_de {
-        TokenStream::new()
-    } else {
-        let container = container_serde_attrs(input);
-        let serde_attrs = if has_ser {
-            quote!()
-        } else {
-            quote!(#[derive(::velton::serde::Serialize)])
-        };
-        let de_attrs = if has_de {
-            quote!()
-        } else {
-            quote!(#[derive(::velton::serde::Deserialize)])
-        };
-        let ser_map: Vec<TokenStream> = data
-            .variants
-            .iter()
-            .map(|v| {
-                let v = &v.ident;
-                quote!(#name::#v => #serde_hidden::#v)
-            })
-            .collect();
-        let de_map: Vec<TokenStream> = data
-            .variants
-            .iter()
-            .map(|v| {
-                let v = &v.ident;
-                quote!(#serde_hidden::#v => #name::#v)
-            })
-            .collect();
-        let ser_impl = if has_ser {
-            TokenStream::new()
-        } else {
-            quote! {
-                impl ::velton::serde::Serialize for #name {
-                    fn serialize<S: ::velton::serde::Serializer>(
-                        &self,
-                        serializer: S,
-                    ) -> ::std::result::Result<S::Ok, S::Error> {
-                        let __v = match self {
-                            #(#ser_map),*
-                        };
-                        ::velton::serde::Serialize::serialize(&__v, serializer)
-                    }
-                }
-            }
-        };
-        let de_impl = if has_de {
-            TokenStream::new()
-        } else {
-            quote! {
-                impl<'de> ::velton::serde::Deserialize<'de> for #name {
-                    fn deserialize<D: ::velton::serde::Deserializer<'de>>(
-                        deserializer: D,
-                    ) -> ::std::result::Result<Self, D::Error> {
-                        let __v = ::velton::serde::Deserialize::deserialize(deserializer)?;
-                        ::std::result::Result::Ok(match __v {
-                            #(#de_map),*
-                        })
-                    }
-                }
-            }
-        };
-        quote! {
-            #[doc(hidden)]
-            #[allow(non_camel_case_types, dead_code)]
-            #serde_attrs
-            #de_attrs
-            #[serde(#(#container),*)]
-            enum #serde_hidden {
-                #(#variants,)*
-            }
-            #ser_impl
-            #de_impl
-        }
-    };
-
     let enum_values: Vec<TokenStream> = variants
         .iter()
         .map(|v| quote!(::velton::serde_json::json!(#v)))
@@ -793,8 +559,5 @@ fn derive_enum(
         }
     };
 
-    Ok(quote! {
-        #serde_impls
-        #schema_impl
-    })
+    Ok(schema_impl)
 }
