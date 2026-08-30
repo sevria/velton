@@ -100,10 +100,11 @@ path = ...)]` turn an `impl` block into a router. Each endpoint declares its
   generates request extraction (query/path/header/body) plus the OpenAPI
   parameters and request body. (You derive `serde::Serialize`/`Deserialize`
   yourself; see [Serde is up to you](#serde-is-up-to-you).)
-- **One derive for responses** — `#[derive(ToSchema)]` +
-  `#[schema(status_code = 201, description = "...")]` generates an axum
-  `IntoResponse` and OpenAPI response metadata, serialized via your `Serialize`
-  impl.
+- **One derive for responses** — `#[derive(ToSchema)]` on a struct with a
+  container-level `#[schema(...)]` generates an axum `IntoResponse` and OpenAPI
+  response metadata, serialized via your `Serialize` impl. `status_code` and
+  `description` are optional and default to `200` / `"OK"` (e.g.
+  `#[schema(status_code = 201, description = "...")]` to override).
 - **OpenAPI 3.0 document** — assembled automatically from your controllers,
   served at `/openapi.json`, with an interactive **Scalar** UI at `/docs`.
 - **Error-agnostic handlers** — return `Result<T, YourError>`; a default error
@@ -177,7 +178,8 @@ async fn list(self, req: ListUsersRequest) -> Result<ListUsersResponse, Error> {
 The OpenAPI `operationId` is derived automatically from the handler function
 name. The success response is auto-discovered from the handler's return type;
 additional responses are listed with `error_responses = (...)` (each type
-must derive `ToSchema` with a `#[schema(status_code = ...)]`).
+must derive `ToSchema` with a `#[schema(...)]` container attribute;
+`status_code`/`description` default to `200` / `"OK"`).
 
 ## Error handling
 

@@ -9,8 +9,10 @@ mod attr;
 mod controller;
 mod schema;
 
-/// Derives OpenAPI schema, request extraction and, when
-/// `#[schema(status_code = ...)]` is present, response support.
+/// Derives OpenAPI schema, request extraction and response support
+/// (`IntoResponse` + `ResponseSchema`, enabled by a container-level
+/// `#[schema(...)]`; `status_code` and `description` default to `200` /
+/// `"OK"`).
 ///
 /// `Serialize`/`Deserialize` are not generated; derive them from the `serde`
 /// crate yourself.

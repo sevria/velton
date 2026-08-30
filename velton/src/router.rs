@@ -153,10 +153,11 @@ impl RouterBuilder {
 
         // Docs routes.
         let doc = openapi.clone();
+        let title = format!("{} API Docs", &doc.info.title);
         app = app.route(OPENAPI_PATH, get(move || async move { Json(doc) }));
         app = app.route(
             DOCS_PATH,
-            get(|| async { Html(crate::docs::scalar_html()) }),
+            get(|| async move { Html(crate::docs::scalar_html(&title)) }),
         );
 
         // Apply middleware last so it wraps every route.

@@ -4,8 +4,9 @@
 //! * `impl ToSchema` (a `$ref` plus recursive component registration),
 //! * `impl RequestSchema` (OpenAPI parameters + request body),
 //! * `impl FromRequest` (extraction from body/query/path/header), and
-//! * when `#[schema(status_code = ...)]` is present, `impl IntoResponse` and
-//!   `impl ResponseSchema` (response support).
+//! * when the struct carries a `#[schema(...)]` container attribute,
+//!   `impl IntoResponse` and `impl ResponseSchema` (response support;
+//!   `status_code` and `description` default to `200` / `"OK"`).
 //!
 //! Serde `Serialize`/`Deserialize` are **not** generated here — derive them
 //! from the `serde` crate on your types (velton no longer bundles serde).
@@ -150,11 +151,18 @@ fn derive_struct(
     check_no_generics(input)?;
     let fields = struct_fields(data)?;
     let container = SchemaAttr::from_attrs(&input.attrs)?;
+    // A container-level `#[schema(...)]` marks the struct as a response type
+    // (it is the response configuration point). `status_code` and
+    // `description` are optional and default to `200` / `"OK"`.
+    let is_response = input
+        .attrs
+        .iter()
+        .any(|attr| attr.path().is_ident("schema"));
 
     let schema_impl = struct_to_schema_impl(name, &fields)?;
     let request_impl = struct_request_schema_impl(name, &fields)?;
     let from_request_impl = struct_from_request_impl(name, &fields)?;
-    let response_impl = struct_response_impl(name, &container)?;
+    let response_impl = struct_response_impl(name, &container, is_response)?;
 
     Ok(quote! {
         #schema_impl
@@ -205,12 +213,20 @@ fn struct_to_schema_impl(name: &syn::Ident, fields: &[FieldSpec<'_>]) -> syn::Re
     })
 }
 
-/// Generates axum `IntoResponse` and `ResponseSchema` impls when the container
-/// has `#[schema(status_code = ...)]`; otherwise it is a no-op.
-fn struct_response_impl(name: &syn::Ident, attrs: &SchemaAttr) -> syn::Result<TokenStream> {
-    let Some(code) = attrs.status_code else {
+/// Generates axum `IntoResponse` and `ResponseSchema` impls when the struct
+/// carries a container-level `#[schema(...)]` attribute (the response
+/// marker). `status_code` and `description` are optional and default to `200`
+/// and `"OK"` when absent. The generated `IntoResponse` serializes the body
+/// with `Json`, so response types must derive `serde::Serialize`.
+fn struct_response_impl(
+    name: &syn::Ident,
+    attrs: &SchemaAttr,
+    is_response: bool,
+) -> syn::Result<TokenStream> {
+    if !is_response {
         return Ok(TokenStream::new());
-    };
+    }
+    let code = attrs.status_code.unwrap_or(200);
     let description = attrs
         .description
         .clone()

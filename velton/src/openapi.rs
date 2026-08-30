@@ -4,6 +4,7 @@ pub use crate::schema::{Components, Schema};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use stringcase::title_case;
 
 fn is_false(b: &bool) -> bool {
     !*b
@@ -115,7 +116,7 @@ impl OpenApiBuilder {
         OpenApi {
             openapi: "3.0.3".to_string(),
             info: Info {
-                title: self.name.unwrap_or_default(),
+                title: title_case(&self.name.unwrap_or_default()),
                 version: self.version.unwrap_or_else(|| "0.1.0".to_string()),
                 description: self.description,
             },
